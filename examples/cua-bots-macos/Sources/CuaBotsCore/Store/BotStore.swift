@@ -81,8 +81,10 @@ public final class BotStore: ObservableObject {
     }
 
     /// Finished files under `agents/<name>/outputs/`.
+    /// Newest first, so the profile's first few are the latest work.
     public func outputs(for id: String) -> [VolumeEntry] {
-        (try? volume.walk(VolumeLayout.outputs(id))) ?? []
+        ((try? volume.walk(VolumeLayout.outputs(id))) ?? [])
+            .sorted { ($0.modified ?? .distantPast, $1.path) > ($1.modified ?? .distantPast, $0.path) }
     }
 
     // MARK: - Creating

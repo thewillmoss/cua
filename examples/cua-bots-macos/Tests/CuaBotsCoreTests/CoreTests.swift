@@ -270,6 +270,14 @@ struct StoreTests {
         #expect(engine.sent.last!.contains("Denied: Sign in to github.com"))
     }
 
+    @Test func testOutputsNewestFirst() async throws {
+        let store = makeStore(ScriptedEngine())
+        try store.volume.write("agents/ada/outputs/a-old.md", Data("old".utf8))
+        try await Task.sleep(nanoseconds: 1_100_000_000)
+        try store.volume.write("agents/ada/outputs/z-new.md", Data("new".utf8))
+        #expect(store.outputs(for: "ada").map(\.name) == ["z-new.md", "a-old.md"])
+    }
+
     @Test func testPauseRefusesWorkAndResumeRestores() async throws {
         let engine = ScriptedEngine()
         let store = makeStore(engine)
