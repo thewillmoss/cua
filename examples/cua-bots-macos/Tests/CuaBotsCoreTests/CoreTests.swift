@@ -246,6 +246,30 @@ struct StoreTests {
         } else { Issue.record("expected a result card") }
     }
 
+    @Test func testMessagesWhileMidTurnQueueUntilTheTurnEnds() async throws {
+        let engine = ScriptedEngine()
+        engine.replies = ["Hello.", "[[login: etsy.com]]\n[[login: github.com]]"]
+        let store = makeStore(engine)
+        let bot = await store.createBot(name: "Rue", avatar: .default(for: "Rue"), harness: .codex, placement: .local)
+        await store.pollOnce(bot.id)
+        await store.send(bot.id, "Sign in to what you need")
+        await store.pollOnce(bot.id)
+        let cards = store.pendingApprovals(for: bot.id)
+        #expect(cards.count == 2)
+        await store.send(bot.id, "One more thing")
+        let before = engine.sent.count
+        // Mid-turn: both denials wait instead of failing.
+        for c in cards { await store.decide(c.id, approve: false) }
+        #expect(engine.sent.count == before)
+        #expect(store.pendingApprovals(for: bot.id).isEmpty)
+        #expect(store.bot(bot.id)?.mood != .error)
+        await store.pollOnce(bot.id)
+        for _ in 0..<50 where engine.sent.count == before { await Task.yield() }
+        #expect(engine.sent.count == before + 1)
+        #expect(engine.sent.last!.contains("Denied: Sign in to etsy.com"))
+        #expect(engine.sent.last!.contains("Denied: Sign in to github.com"))
+    }
+
     @Test func testPauseRefusesWorkAndResumeRestores() async throws {
         let engine = ScriptedEngine()
         let store = makeStore(engine)

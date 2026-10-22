@@ -50,6 +50,9 @@ public final class BotStore: ObservableObject {
     private var pollers: [String: Task<Void, Never>] = [:]
     private var currentTask: [String: String] = [:]
     private var busy: Set<String> = []
+    /// Messages for a bot that is mid-turn, sent when the turn ends: the
+    /// daemon refuses a persistent agent's follow-up while a turn runs.
+    private var queued: [String: [String]] = [:]
 
     public init(volume: VolumeStore, dataDirectory: URL, engine: BotEngine? = nil) {
         self.volume = volume
@@ -200,17 +203,27 @@ public final class BotStore: ObservableObject {
         do {
             if bot.runID == nil {
                 await bringUp(id, firstPrompt: text)
+            } else if busy.contains(id) {
+                queued[id, default: []].append(text)
+                return
             } else {
+                busy.insert(id)
                 try? await engine.push(bot, volume: volume)
                 try await engine.send(bot, text: text)
-                busy.insert(id)
                 update(id) { $0.mood = .thinking; $0.status = "Thinking" }
                 startPolling(id)
             }
         } catch {
+            busy.remove(id)
             fail(id, "Couldn't reach \(bot.name): \(error.localizedDescription)")
         }
         save()
+    }
+
+    /// Send what queued up while the bot was mid-turn, as one message.
+    private func flushQueued(_ id: String) {
+        guard let texts = queued.removeValue(forKey: id), !texts.isEmpty else { return }
+        Task { await deliver(id, texts.joined(separator: "\n\n")) }
     }
 
     // MARK: - Approvals
@@ -474,9 +487,11 @@ public final class BotStore: ObservableObject {
             if let b = bot(id), let engine {
                 Task { try? await engine.checkpoint(b, volume: self.volume) }
             }
+            flushQueued(id)
         case .failed(let reason):
             busy.remove(id)
             fail(id, reason)
+            flushQueued(id)
         case .run(let run):
             self.update(id) { $0.runID = run; $0.mood = .thinking; $0.status = "Thinking" }
             cursors[id] = 0
