@@ -113,9 +113,11 @@ public final class RoutineClock: RoutineRunner {
                     if let rid = task.routineID, let r = existing.first(where: { $0.id == rid }) {
                         if r.enabled != enabled { try await daemon.setRoutine(rid, enabled: enabled) }
                     } else if let rid = try await daemon.addRoutine(bot, task) {
+                        // Record it before anything else can throw, so a
+                        // failed pass never adds the same routine again.
                         owned[botID, default: []].insert(rid)
-                        if !enabled { try await daemon.setRoutine(rid, enabled: false) }
                         store.setRoutineID(task.id, botID: botID, rid)
+                        if !enabled { try await daemon.setRoutine(rid, enabled: false) }
                     }
                 }
                 let kept = Set(store.tasks(for: botID).compactMap(\.routineID))
