@@ -147,8 +147,14 @@ public enum DirectiveParser {
 /// The standing instructions a bot's harness reads from its home, written by
 /// the app into the Volume (`agents/<name>/`) and copied into the Space.
 public enum BotInstructions {
-    public static func render(bot: Bot, rules: [CustomRule], memoryPath: String = "memory/MEMORY.md") -> String {
-        """
+    /// `persistent`: the bot is a persistent agent, which starts in its
+    /// home's `work/` folder.
+    public static func render(bot: Bot, rules: [CustomRule], memoryPath: String = "memory/MEMORY.md",
+                              persistent: Bool = false) -> String {
+        let place = persistent
+            ? "in your home folder, the parent of the folder you start in (`..`). Every path below is in that home"
+            : "next to this file"
+        return """
         # You are \(bot.name)
 
         You are \(bot.owner)'s bot: a persistent assistant that works on its own \
@@ -157,7 +163,7 @@ public enum BotInstructions {
 
         ## Memory
 
-        Your memory lives in `\(memoryPath)` next to this file. Read it at the start of \
+        Your memory lives in `\(memoryPath)` \(place). Read it at the start of \
         every conversation. When you learn something about \(bot.owner), their goals, \
         preferences or standards, add one line to it. Never write passwords, tokens or \
         keys into memory: sign-ins go through the user's Keyvault.

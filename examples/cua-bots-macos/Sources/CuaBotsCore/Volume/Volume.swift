@@ -29,6 +29,17 @@ public enum VolumeLayout {
     public static func instructions(_ agent: String, harness: Harness) -> String {
         "agents/\(agent)/\(harness.instructionsFile)"
     }
+    /// Where a persistent agent's harness reads its standing instructions
+    /// inside the home (`CODEX_HOME`, `HERMES_HOME`, the OpenClaw
+    /// workspace); Claude Code finds the home's `CLAUDE.md` above its cwd.
+    public static func persistentInstructions(_ agent: String, harness: Harness) -> String? {
+        switch harness {
+        case .codex: "agents/\(agent)/codex/AGENTS.md"
+        case .hermes: "agents/\(agent)/hermes/SOUL.md"
+        case .openclaw: "agents/\(agent)/workspace/AGENTS.md"
+        case .claudeCode: nil
+        }
+    }
 
     /// `local:bot-ada` is `spaces/local-bot-ada/`, the way `cua-volume` names
     /// Space folders.

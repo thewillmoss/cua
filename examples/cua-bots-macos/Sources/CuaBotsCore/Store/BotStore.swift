@@ -140,6 +140,17 @@ public final class BotStore: ObservableObject {
     /// Reconnect to bots that were running when the app last quit.
     public func reconnect() {
         for bot in bots where bot.runID != nil && !bot.isPaused { startPolling(bot.id) }
+        // A persistent agent may have worked (routines) while the app was
+        // closed: bring its memory and outputs over from the Cua Volume.
+        if let engine, engine.persistentAgents {
+            for bot in bots { Task { try? await engine.checkpoint(bot, volume: self.volume) } }
+        }
+    }
+
+    /// Follow a bot's run again (the daemon started or finished a turn).
+    public func wake(_ id: String) {
+        guard let bot = bot(id), bot.runID != nil, !bot.isPaused else { return }
+        startPolling(id)
     }
 
     // MARK: - Customizing
@@ -334,6 +345,75 @@ public final class BotStore: ObservableObject {
         return true
     }
 
+    /// Record the `cua daemon` routine a scheduled task became.
+    public func setRoutineID(_ taskID: String, botID: String, _ routineID: String?) {
+        setTasks(botID) { list in
+            if let i = list.firstIndex(where: { $0.id == taskID }) { list[i].routineID = routineID }
+        }
+    }
+
+    /// The daemon's view of a bot's routines: next and last firing on the
+    /// Scheduled page, and a firing since the last look becomes the bot's
+    /// current task (so its steps, outputs and result land on it).
+    public func applyRoutines(_ botID: String, _ states: [RoutineState]) {
+        guard bot(botID) != nil else { return }
+        var list = tasks(for: botID)
+        var fired: [(task: BotTask, at: Date)] = []
+        var changed = false
+        for i in list.indices {
+            guard let rid = list[i].routineID, let st = states.first(where: { $0.id == rid }) else { continue }
+            var t = list[i]
+            t.nextRun = st.nextFire ?? t.nextRun
+            t.lastOutcome = st.lastOutcome
+            if let at = st.lastFiredAt, t.lastRun.map({ at > $0.addingTimeInterval(1) }) ?? true {
+                t.lastRun = at
+                if st.lastOutcome?.hasPrefix("started") == true { fired.append((t, at)) }
+            }
+            if t != list[i] { list[i] = t; changed = true }
+        }
+        guard changed else { return }
+        setTasks(botID) { $0 = list }
+        for f in fired {
+            currentTask[botID] = f.task.id
+            append(ChatMessage(botID: botID, role: .system, text: "Scheduled: \(f.task.title)", kind: .notice,
+                               date: f.at))
+            wake(botID)
+        }
+        save()
+    }
+
+    /// Entries of the daemon's notifications feed: an agent's own
+    /// `notify_user`, an access request and a failure show here like the
+    /// app's; a finished turn wakes the bot's conversation.
+    public func ingest(_ notices: [DaemonNotice]) {
+        var added = false
+        for n in notices.sorted(by: { $0.date < $1.date }) {
+            guard let botID = n.agent, let bot = bot(botID) else { continue }
+            let id = "daemon-\(n.id)"
+            guard !notifications.contains(where: { $0.id == id }) else { continue }
+            let kind: BotNotification.Kind
+            switch n.kind {
+            case "message": kind = .result
+            case "approval": kind = .approval
+            case "error": kind = .problem
+            default:
+                wake(botID)
+                continue
+            }
+            let note = BotNotification(id: id, botID: botID, kind: kind, title: n.title, body: n.body, date: n.date)
+            notifications.insert(note, at: 0)
+            notifier?.post(note, bot: bot)
+            added = true
+        }
+        if added { save() }
+    }
+
+    /// The newest daemon notification already shown, for the next read of
+    /// the feed.
+    public var lastDaemonNotice: Date? {
+        notifications.filter { $0.id.hasPrefix("daemon-") }.map(\.date).max()
+    }
+
     // MARK: - Notifications
 
     public func markRead(_ id: String) {
@@ -397,6 +477,11 @@ public final class BotStore: ObservableObject {
         case .failed(let reason):
             busy.remove(id)
             fail(id, reason)
+        case .run(let run):
+            self.update(id) { $0.runID = run; $0.mood = .thinking; $0.status = "Thinking" }
+            cursors[id] = 0
+            turnText[id] = nil
+            busy.insert(id)
         }
         save()
     }
@@ -583,8 +668,12 @@ public final class BotStore: ObservableObject {
         try? volume.writeJSON(bot, VolumeLayout.identity(bot.id))
         try? volume.writeJSON(r, "agents/\(bot.id)/identity/rules.json")
         try? volume.writeText(VolumeLayout.rules(bot.id), RuleEngine.yaml(r))
-        try? volume.writeText(VolumeLayout.instructions(bot.id, harness: bot.harness),
-                             BotInstructions.render(bot: bot, rules: r))
+        let persistent = engine?.persistentAgents ?? false
+        let instructions = BotInstructions.render(bot: bot, rules: r, persistent: persistent)
+        try? volume.writeText(VolumeLayout.instructions(bot.id, harness: bot.harness), instructions)
+        if persistent, let path = VolumeLayout.persistentInstructions(bot.id, harness: bot.harness) {
+            try? volume.writeText(path, instructions)
+        }
         if (try? volume.read(VolumeLayout.memory(bot.id))) == nil {
             try? volume.writeText(VolumeLayout.memory(bot.id), "# What \(bot.name) remembers\n")
         }
@@ -595,6 +684,9 @@ public final class BotStore: ObservableObject {
         var approvals: [ApprovalRequest]
         var notifications: [BotNotification]
         var bots: [Bot]
+        /// Where each bot's run was read up to, so a restart doesn't show
+        /// its turns again.
+        var cursors: [String: UInt64]?
     }
 
     var stateURL: URL { dataDirectory.appendingPathComponent("state.json") }
@@ -602,7 +694,8 @@ public final class BotStore: ObservableObject {
     public func save() {
         let e = JSONEncoder()
         e.dateEncodingStrategy = .iso8601
-        let saved = Saved(messages: messages, approvals: approvals, notifications: notifications, bots: bots)
+        let saved = Saved(messages: messages, approvals: approvals, notifications: notifications, bots: bots,
+                          cursors: cursors)
         if let data = try? e.encode(saved) { try? data.write(to: stateURL, options: .atomic) }
         for bot in bots { try? volume.writeJSON(bot, VolumeLayout.identity(bot.id)) }
     }
@@ -615,6 +708,7 @@ public final class BotStore: ObservableObject {
             messages = saved.messages
             approvals = saved.approvals
             notifications = saved.notifications
+            cursors = saved.cursors ?? [:]
             for b in saved.bots { runtime[b.id] = b }
         }
         // The Volume is the source of truth for which bots exist.

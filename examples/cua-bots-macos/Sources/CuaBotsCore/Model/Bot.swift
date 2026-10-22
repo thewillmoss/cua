@@ -42,15 +42,40 @@ public enum Harness: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Where a bot's own computer runs.
-public enum Placement: String, Codable, CaseIterable, Identifiable, Sendable {
+/// Where a bot's own computer runs: what `Spaces.create` takes as `on`.
+/// Stored as that string (`local`, `cloud`, `host:<id>`), so bots saved
+/// before hosts existed still decode.
+public struct Placement: RawRepresentable, Codable, Hashable, Identifiable, Sendable {
+    public var rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(from decoder: Decoder) throws { rawValue = try decoder.singleValueContainer().decode(String.self) }
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
+
     /// A Space on this Mac (a container under Docker or gVisor).
-    case local
+    public static let local = Placement(rawValue: "local")
     /// A Cua Cloud Space.
-    case cloud
+    public static let cloud = Placement(rawValue: "cloud")
+    /// A Space on one of your computers that provides Spaces
+    /// ([Add a computer](https://cua.ai/docs/spaces/guides/add-a-computer)):
+    /// `id` is the host id `Spaces.hosts()` lists.
+    public static func host(_ id: String) -> Placement { Placement(rawValue: "host:\(id)") }
+
+    /// The host id of a `host:` placement.
+    public var hostID: String? {
+        rawValue.hasPrefix("host:") ? String(rawValue.dropFirst(5)) : nil
+    }
 
     public var id: String { rawValue }
-    public var name: String { self == .local ? "This Mac" : "Cua Cloud" }
+    public var name: String {
+        switch self {
+        case .local: "This Mac"
+        case .cloud: "Cua Cloud"
+        default: hostID ?? rawValue
+        }
+    }
 }
 
 /// Access the bot has to the user's own computer. Off until the user allows

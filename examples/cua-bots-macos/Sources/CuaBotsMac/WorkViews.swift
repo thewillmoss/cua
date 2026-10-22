@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Cua AI, Inc.
 
 import CuaBotsCore
+import CuaBotsCua
 import CuaBotsUI
 import SwiftUI
 
@@ -23,7 +24,7 @@ struct ScheduledView: View {
                             TaskRow(t)
                             Spacer()
                             if let last = t.lastRun {
-                                Text("Last run \(last.formatted(date: .omitted, time: .shortened))")
+                                Text("Last run \(last.formatted(date: .omitted, time: .shortened))\(t.lastOutcome.map { " · \($0)" } ?? "")")
                                     .font(.caption).foregroundStyle(.tertiary)
                             }
                             Toggle("", isOn: Binding(get: { t.state == .scheduled }, set: { on in
@@ -55,6 +56,20 @@ struct ScheduledView: View {
                 }
             }
             Section("Recent firings") {
+                // cua daemon's routines: each task's last firing.
+                if model.clock.usesDaemon {
+                    let fired = model.store.bots.flatMap { model.store.tasks(for: $0.id) }
+                        .filter { $0.routineID != nil && $0.lastRun != nil }
+                        .sorted { $0.lastRun! > $1.lastRun! }
+                    ForEach(fired.prefix(8)) { t in
+                        HStack {
+                            Text(t.title)
+                            Spacer()
+                            Text(t.lastOutcome ?? "").font(.caption).foregroundStyle(.secondary)
+                            Text(t.lastRun!.formatted(date: .omitted, time: .shortened)).font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
                 ForEach(model.clock.routines.log.prefix(8)) { r in
                     HStack {
                         Text(r.title)
@@ -157,7 +172,7 @@ struct ApprovalsView: View {
                             VStack(alignment: .leading) {
                                 Text(p.callerDisplay).font(.callout.weight(.medium))
                                 Text(p.request.reason).font(.caption).foregroundStyle(.secondary)
-                                Text(p.items.map(\.label).joined(separator: ", ")).font(.caption)
+                                Text(p.items.map(KeyvaultBridge.label).joined(separator: ", ")).font(.caption)
                             }
                             Spacer()
                             Button("Deny") { Task { try? await model.keyvault.decide(requestID: p.id, approve: false) } }

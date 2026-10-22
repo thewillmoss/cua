@@ -16,7 +16,7 @@ struct BotDraft {
     var step = 0
     var name = ""
     var avatar = AvatarConfig(color: .sky, eyes: .star, ears: .scalloped)
-    var harness: Harness = .hermes
+    var harness: Harness = .codex
     var placement: Placement = .local
     var customizedLook = false
 }
@@ -57,6 +57,8 @@ final class AppModel: ObservableObject, Notifier {
     @Published var systemNotifications = UNAuthorizationStatus.notDetermined
     @Published var streams: [String: LiveStreamSession] = [:]
     @Published var engineError: String?
+    /// Your computers that provide Spaces (`Spaces.hosts()`), for "where it runs".
+    @Published var hosts: [SpacesHost] = []
     let pips = PiPControllers()
 
     private var cancellable: AnyCancellable?
@@ -80,13 +82,15 @@ final class AppModel: ObservableObject, Notifier {
         do {
             let cua = env["CUA_BOTS_SPACES"] == "daemon" ? try Cua.connect(address: nil, token: nil)
                                                         : try Cua.embedded()
-            engine = CuaEngine(cua: cua)
+            // `CUA_BOTS_PERSISTENT=1`: each bot is a persistent agent that
+            // `cua daemon` supervises (pair with `CUA_BOTS_SPACES=daemon`).
+            engine = CuaEngine(cua: cua, persistentAgents: env["CUA_BOTS_PERSISTENT"] == "1")
         } catch {
             engineError = "Couldn't start the Cua runtime: \(error.localizedDescription)"
         }
         self.engine = engine
         store = BotStore(volume: volume, dataDirectory: dataDir, engine: engine)
-        clock = RoutineClock(fileURL: dataDir.appendingPathComponent("routines.json"), store: store)
+        clock = RoutineClock(fileURL: dataDir.appendingPathComponent("routines.json"), store: store, engine: engine)
         keyvault = KeyvaultBridge(cuaHome: cuaHome)
         keyvault.engine = engine
         host = HostAccessBridge(cuaHome: cuaHome)
@@ -102,8 +106,14 @@ final class AppModel: ObservableObject, Notifier {
         Task {
             await keyvault.refresh()
             await host.refresh()
+            await refreshHosts()
             await refreshNotificationStatus()
         }
+    }
+
+    func refreshHosts() async {
+        guard let engine else { return }
+        do { hosts = try await engine.hosts() } catch { hosts = [] }
     }
 
     var selectedBot: Bot? {

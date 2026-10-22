@@ -158,7 +158,8 @@ final class ScriptedEngine: BotEngine {
     var replies: [String] = []
     var paused = false
     var resetCount = 0
-    private var queue: [EngineUpdate] = []
+    var persistentAgents = false
+    var queue: [EngineUpdate] = []
     private var turn: UInt32 = 0
     private var seq: UInt64 = 0
 

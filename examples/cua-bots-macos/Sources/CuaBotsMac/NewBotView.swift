@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: FSL-1.1-MIT
 // Copyright (c) 2026 Cua AI, Inc.
 
+import Cua
 import CuaBotsCore
 import CuaBotsUI
 import SwiftUI
@@ -86,10 +87,8 @@ struct NewBotView: View {
 
     var whereItRuns: some View {
         Form {
-            Picker("Its computer", selection: $model.draft.placement) {
-                ForEach(Placement.allCases) { p in Text(p.name).tag(p) }
-            }
-            .pickerStyle(.segmented)
+            computerPicker
+                .task { await model.refreshHosts() }
             Picker("Agent", selection: $model.draft.harness) {
                 ForEach(Harness.allCases) { h in
                     VStack(alignment: .leading) {
@@ -110,6 +109,19 @@ struct NewBotView: View {
         .formStyle(.grouped)
         .scrollDisabled(true)
         .frame(height: 300)
+    }
+
+    /// This Mac, Cua Cloud and your computers that provide Spaces
+    /// ([Add a computer](https://cua.ai/docs/spaces/guides/add-a-computer)).
+    @ViewBuilder var computerPicker: some View {
+        let picker = Picker("Its computer", selection: $model.draft.placement) {
+            Text(Placement.local.name).tag(Placement.local)
+            Text(Placement.cloud.name).tag(Placement.cloud)
+            ForEach(model.hosts, id: \.id) { h in
+                Text(h.online ? h.name : "\(h.name) (offline)").tag(Placement.host(h.id))
+            }
+        }
+        if model.hosts.isEmpty { picker.pickerStyle(.segmented) } else { picker.pickerStyle(.menu) }
     }
 
     var stepDots: some View {

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Cua AI, Inc.
 
 import CuaBotsCore
+import CuaBotsCua
 import CuaBotsUI
 import SwiftUI
 
@@ -204,9 +205,9 @@ struct SignInSheet: View {
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Image(systemName: "person.crop.circle")
-                    Text(item.account ?? item.label)
+                    Text(KeyvaultBridge.label(item))
                     Spacer()
-                    Text("\(item.summary.cookies.count) cookies · \(item.summary.passwords) passwords")
+                    Text("\(item.appDisplay) · \(item.kind)")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(12)

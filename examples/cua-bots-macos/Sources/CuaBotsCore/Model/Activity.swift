@@ -59,6 +59,19 @@ public enum TaskSchedule: Codable, Hashable, Sendable {
         }
     }
 
+    /// The same schedule as `cua daemon` routines take it (`routineAdd`):
+    /// exactly one of every N minutes, daily `HH:MM`, weekly `<weekday> HH:MM`.
+    public var routineArguments: (everyMinutes: Int64?, dailyAt: String?, weeklyOn: String?) {
+        let hm = { (h: Int, m: Int) in String(format: "%02d:%02d", h, m) }
+        switch self {
+        case .every(let m): return (Int64(max(m, 1)), nil, nil)
+        case .daily(let h, let m): return (nil, hm(h, m), nil)
+        case .weekly(let wd, let h, let m):
+            let days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+            return (nil, nil, "\(days[(wd - 1 + 7) % 7]) \(hm(h, m))")
+        }
+    }
+
     public func nextFire(after date: Date, calendar: Calendar = .current) -> Date? {
         switch self {
         case .every(let minutes):
@@ -117,6 +130,11 @@ public struct BotTask: Identifiable, Codable, Hashable, Sendable {
     /// Volume paths under `agents/<name>/outputs/`.
     public var outputs: [String]
     public var createdAt: Date
+    /// The `cua daemon` routine this scheduled task is, when the bot is a
+    /// persistent agent.
+    public var routineID: String?
+    /// What the daemon's routine did last ("started", "skipped: busy").
+    public var lastOutcome: String?
 
     public init(id: String = UUID().uuidString, botID: String, title: String, prompt: String,
                 symbol: String = "circle.dashed", state: TaskState = .inProgress,

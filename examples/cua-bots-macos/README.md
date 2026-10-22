@@ -37,21 +37,43 @@ and the name shown for this Mac (default: your account and computer names).
 design target; unset follows the system). Local Spaces
 need Docker (or Colima).
 
+### Persistent agents and your own computers
+
+```sh
+CUA_BOTS_SPACES=daemon CUA_BOTS_PERSISTENT=1 .build/debug/CuaBots
+```
+
+With `CUA_BOTS_PERSISTENT=1` each bot is a persistent agent of `cua daemon`
+([Persistent agents](https://cua.ai/docs/spaces/guides/persistent-agents)),
+named after the bot: its home lives in the Cua Volume, the daemon fires its
+routines and posts its notifications whether or not the app is open, and the
+app reads them back into Scheduled, Approvals, Outputs and the conversation.
+Run it against the daemon (`CUA_BOTS_SPACES=daemon`), which supervises
+persistent agents. A persistent agent forwards no key from the app's
+environment: it uses the keys saved in Cua Spaces (**Settings, Agents**) or
+the harness's own sign-in inside its Space. For Codex with your ChatGPT
+account, sign in once in the bot's Space (`codex login --device-auth` there);
+Cua never reads or copies that sign-in.
+
+"Where it runs" also lists your computers that provide Spaces
+([Add a computer](https://cua.ai/docs/spaces/guides/add-a-computer)), from
+`Spaces.hosts()`; a bot there is created with `on: host:<id>`.
+
 ## What maps to what
 
 | In the app | Cua underneath |
 |---|---|
-| New bot: name, look, where it runs, which agent | `Spaces.create` (`on: local` or `cloud`, `reuse`), one Space per bot named `bot-<name>`; `Space.agentStart` with the harness (`hermes`, `openclaw`, `openai-codex`, `claude-code`) |
+| New bot: name, look, where it runs, which agent | `Spaces.create` (`on: local`, `cloud` or `host:<id>` from `Spaces.hosts()`, `reuse`), one Space per bot named `bot-<name>`; `Space.agentStart` with the harness (`hermes`, `openclaw`, `openai-codex`, `claude-code`), or with `CUA_BOTS_PERSISTENT=1` `Spaces.persistentAgentCreate` and `persistentAgentSend` |
 | The koala face and its expressions | `KoalaAvatar` (this sample), drawn from geometry derived from the Cua koala mark |
 | "Ada's computer", live, with picture in picture | `LiveStreamSession` and `StreamPiPController` (`CuaSpacesStreaming`) on the bot's Space |
 | Ada has control · Take over | the stream turns interactive and `agentInterrupt` pauses the turn |
 | Ada's face as her pointer | `SpacesdClient.cursorPosition()` |
 | Memory, outputs, inbox | Cua Volume layout `agents/<name>/` (`memory/MEMORY.md`, `outputs/`, `inbox/`), copied into the Space before a turn and back after it |
-| Works on its own | scheduled tasks on the SDK's routine clock (`RoutineStore`) |
+| Works on its own | scheduled tasks on the SDK's routine clock (`RoutineStore`); persistent agents: `cua daemon` routines (`Spaces.routineAdd`, `routines`, `routineSetEnabled`) and its `notifications` feed |
 | Approvals and custom rules | `rules.yaml` and the instructions file in the bot's Volume home; the bot asks with `[[ask: ...]]`, the app answers in the conversation |
 | Log me into this site | `[[login: site]]`; a saved sign-in from the Cua Keyvault (`KeyvaultClient` from `CuaSpacesFFI`, `Space.teleport`), or take over and type it yourself |
 | Access to this Mac: Allow, Revoke | `Host.startSharing` / `Host.stopSharing` (`cua host`) |
-| Pause, Resume, Reset | interrupt the run and disarm routines (optionally `Sandbox.suspend`); reset stops the run, deletes the Space and the Volume home |
+| Pause, Resume, Reset | interrupt the run and disarm routines (optionally `Sandbox.suspend`); persistent agents: `agentPause`, `agentResume`; reset stops the run, deletes the Space and the Volume home (a persistent agent is forgotten with `persistentAgentRemove`; its home stays in the Cua Volume) |
 | The iPhone app | the bot's snapshot and an outbox in its Space, read and written through spacesd (`RemoteBridge`) |
 
 ## How a bot talks to the app
@@ -96,15 +118,13 @@ What the sample does with today's primitives, and what needs core work:
 - Rules are guidance: agent runs auto-approve their own permissions. Enforced
   approvals need the runner to route permission requests to the app.
 - The Volume is a folder in the app's data (`LocalVolume`) with the Cua
-  Volume layout and secret refusal. The SDK's `Spaces.volumeRead`,
-  `volumeWrite` and `volumeLs` reach the daemon's Cua Volume; the app doesn't
-  sync through them yet.
-- The routine clock runs in the app, so routines fire while it's open.
-- The app runs each bot with `Space.agentStart` and copies its home in and
-  out itself. The SDK's persistent agents (`Spaces.persistentAgentCreate`,
-  `persistentAgentSend`, `agentPause`, `agentResume`, `routineAdd`,
-  `notifications`) keep the home in the Cua Volume, with saves, routines and
-  notifications run by `cua daemon`; the app doesn't use them yet.
+  Volume layout and secret refusal. With persistent agents it is a copy:
+  the app writes the bot's instructions, rules and inbox to the daemon's Cua
+  Volume (`Spaces.volumeWrite`) and reads memory and outputs back
+  (`volumeLs`, `volumeRead`) after each turn.
+- Without persistent agents the routine clock runs in the app, so routines
+  fire while it's open, and the app runs each bot with `Space.agentStart`,
+  copying its home in and out itself.
 - Host access is per account, not per bot.
 - Saved sign-ins need the Cua daemon's Keyvault and a Cua-signed app to
   approve; this sample's build shows the request and falls back to take over.
