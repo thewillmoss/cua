@@ -50,7 +50,7 @@ public final class RemoteBridge {
         }
         snap.written = Date()
         guard let space = try? await engine.space(bot),
-              let home = try? await engine.home(bot, space),
+              let home = try? await engine.remoteHome(bot, space),
               let data = try? snap.encoded() else { return }
         if (try? await space.write(path: "\(home)/\(RemoteSnapshot.path)", content: data)) != nil {
             lastSnapshot[bot.id] = snap
@@ -61,7 +61,7 @@ public final class RemoteBridge {
     /// Apply and remove every command in the outbox, oldest first.
     func drainOutbox(_ bot: Bot) async {
         guard let space = try? await engine.space(bot),
-              let home = try? await engine.home(bot, space) else { return }
+              let home = try? await engine.remoteHome(bot, space) else { return }
         let dir = "\(home)/\(RemoteSnapshot.outbox)"
         guard let listing = try? await space.bash(command: "ls -1tr '\(dir)' 2>/dev/null | head -20", timeoutMs: 5000)
         else { return }

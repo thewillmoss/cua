@@ -115,6 +115,16 @@ public final class CuaEngine: BotEngine {
         return h
     }
 
+    /// Where the phone's state and outbox live (`<home>/.cua-bots/`). For a
+    /// persistent agent that is outside its saved home: the Cua Volume
+    /// refuses `.cua-` names, so a `.cua-bots/` folder in the home fails
+    /// every save of it.
+    public func remoteHome(_ bot: Bot, _ space: CuaSDK.Space) async throws -> String {
+        guard persistentAgents else { return try await home(bot, space) }
+        let guest = (try? await space.home()) ?? "/home/cua"
+        return "\(guest)/bots/\(bot.id)"
+    }
+
     // MARK: - Runs
 
     public func start(_ bot: Bot, volume: VolumeStore, prompt: String) async throws -> String {
