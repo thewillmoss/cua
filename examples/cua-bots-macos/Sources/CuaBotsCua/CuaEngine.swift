@@ -67,10 +67,19 @@ public final class CuaEngine: BotEngine {
     public func provision(_ bot: Bot, progress: @escaping @MainActor (EnginePhase) -> Void) async throws -> String {
         progress(.creatingSpace(bot.placement == .local ? "Creating a Space on this Mac"
             : bot.placement == .cloud ? "Creating a Cua Cloud Space" : "Creating a Space on \(bot.placement.name)"))
+        // `reuse` does not apply to `host:` Spaces ("list them with
+        // list_spaces"): reuse the bot's Space on that computer by name.
+        if let host = bot.placement.hostID,
+           let existing = try await cua.spaces().list().first(where: {
+               $0.name == bot.spaceName && ($0.hostName == host || $0.host == host)
+           }) {
+            progress(.startingAgent)
+            return existing.id
+        }
         let options = SpaceCreateOptions(
             image: try image ?? Image.linux(), on: bot.placement.rawValue, kind: "container", runtime: nil,
             name: bot.spaceName, cpus: nil, memoryMb: nil, diskGb: nil, timeoutMs: nil, wait: true,
-            reuse: true, command: nil, env: [:], services: [:], spacesd: nil)
+            reuse: bot.placement.hostID == nil, command: nil, env: [:], services: [:], spacesd: nil)
         let result = try await cua.spaces().create(options: options)
         guard let info = result.space else {
             throw EngineError.notReady("the Space is still being created (\(result.pendingId ?? "pending"))")
